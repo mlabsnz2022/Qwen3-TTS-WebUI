@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Qwen3-TTS WebUI
+Comment=Run Qwen3-TTS Gradio Interface
+Exec=/home/mlabs/Documents/dev/tts/run_tts.sh
+Icon=audio-x-generic
+Terminal=true
+Categories=Development;Audio;
