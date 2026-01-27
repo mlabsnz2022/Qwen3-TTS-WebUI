@@ -21,6 +21,16 @@ os.makedirs(CUSTOM_VOICES_DIR, exist_ok=True)
 SESSION_DIR = "/home/mlabs/Documents/dev/tts/session_outputs"
 os.makedirs(SESSION_DIR, exist_ok=True)
 
+STYLE_TAGS = {
+    "Whispered": "(whispering)",
+    "Shouting": "(shouting)",
+    "Excited": "(excitedly)",
+    "Happy": "(happily)",
+    "Serious": "(seriously)",
+    "Slow": "(slowly)",
+    "Fast": "(quickly)",
+}
+
 def get_custom_voices():
     if not os.path.exists(CUSTOM_VOICES_DIR):
         return []
@@ -135,7 +145,16 @@ def tts_preset(text, language, speaker, instruct, output_format):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-def tts_clone(text, language, ref_audio, ref_text, output_format):
+def get_instruct_ids(instruct, model):
+    if not instruct:
+        return None
+    # Follow the format used in Qwen3TTSModel._build_instruct_text
+    prompt = f"<|im_start|>user\n{instruct}<|im_end|>\n"
+    inputs = model.processor(text=prompt, return_tensors="pt", padding=True)
+    target_device = getattr(model, "device", "cuda:0")
+    return [inputs["input_ids"].to(target_device)]
+
+def tts_clone(text, language, ref_audio, ref_text, output_format, instruct):
     global current_model
     if not text or ref_audio is None:
         return None, "Please provide text and reference audio."
@@ -146,6 +165,9 @@ def tts_clone(text, language, ref_audio, ref_text, output_format):
     lang = language if language else "Auto"
     
     try:
+        # Prepare instruction IDs if provided
+        instruct_ids = get_instruct_ids(instruct, current_model)
+        
         # ref_audio in Gradio is typically a filepath
         with torch.no_grad():
             wavs, sr = current_model.generate_voice_clone(
@@ -153,6 +175,7 @@ def tts_clone(text, language, ref_audio, ref_text, output_format):
                 language=lang,
                 ref_audio=ref_audio,
                 ref_text=ref_text if ref_text else "",
+                instruct_ids=instruct_ids
             )
         
         output_path = "temp_clone.wav"
@@ -278,6 +301,13 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
         custom_voices = ["- None -"] + get_custom_voices()
         return gr.Dropdown(choices=custom_voices, value="- None -")
 
+    def insert_tag(text, tag):
+        if not text:
+            return tag + " "
+        if text.endswith(" "):
+            return text + tag + " "
+        return text + " " + tag + " "
+
     def render_history_grid(history_list):
         if not history_list:
             return
@@ -296,6 +326,11 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
             with gr.Row():
                 with gr.Column():
                     p_text = gr.Textbox(label="Text to Speak", placeholder="Enter text here...", lines=3)
+                    with gr.Row():
+                        for label, tag in STYLE_TAGS.items():
+                            btn = gr.Button(label, size="sm", variant="secondary")
+                            btn.click(fn=insert_tag, inputs=[p_text, gr.State(tag)], outputs=[p_text])
+                    
                     p_lang = gr.Dropdown(choices=["Auto"] + preset_languages, label="Language", value="Auto")
                     with gr.Row():
                         p_speaker = gr.Dropdown(choices=preset_speakers, label="Preset Voices", value="vivian")
@@ -318,11 +353,17 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
             with gr.Row():
                 with gr.Column():
                     c_text = gr.Textbox(label="Text to Speak", placeholder="Enter text here...", lines=3)
+                    with gr.Row():
+                        for label, tag in STYLE_TAGS.items():
+                            btn = gr.Button(label, size="sm", variant="secondary")
+                            btn.click(fn=insert_tag, inputs=[c_text, gr.State(tag)], outputs=[c_text])
+                            
                     c_lang = gr.Dropdown(choices=["Auto", "English", "Chinese", "Japanese", "Korean"], label="Language", value="Auto")
                     c_ref_audio = gr.Audio(label="Reference Audio (WAV/MP3)", type="filepath", sources=["upload", "microphone"], interactive=True)
                     c_ref_text = gr.Textbox(label="Reference Transcript (Optional but recommended)", placeholder="What is being said in the reference audio?")
                     c_save_name = gr.Textbox(label="Voice Name (to save)", placeholder="e.g., MyAwesomeVoice")
                     c_save_btn = gr.Button("Save Voice Model", variant="secondary")
+                    c_instruct = gr.Textbox(label="Instruction (Optional)", placeholder="e.g., Speak with a Cantonese accent, or aggressive style...")
                     c_format = gr.Radio(choices=["wav", "mp3"], label="Output Format", value="wav")
                     c_gen_btn = gr.Button("Clone & Generate", variant="primary")
                 with gr.Column():
@@ -361,7 +402,7 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
 
     c_gen_btn.click(
         fn=tts_clone,
-        inputs=[c_text, c_lang, c_ref_audio, c_ref_text, c_format],
+        inputs=[c_text, c_lang, c_ref_audio, c_ref_text, c_format, c_instruct],
         outputs=[c_audio, c_info]
     ).then(
         fn=add_to_history,
