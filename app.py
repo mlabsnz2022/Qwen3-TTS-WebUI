@@ -213,19 +213,18 @@ def tts_voice_design(text, instruct, language, output_format):
             )
         
         # 4. Concatenate with silence
-        # wavs is a list of np arrays
-        silence_duration = 0.5 # seconds
+        valid_results = [r for r in wavs if r is not None]
+        silence_duration = 0.5 
         silence_samples = int(silence_duration * sr)
         silence = np.zeros(silence_samples, dtype=np.float32)
         
         combined_wav = []
-        for i, w in enumerate(wavs):
+        for i, w in enumerate(valid_results):
             combined_wav.append(w)
-            if i < len(wavs) - 1:
+            if i < len(valid_results) - 1:
                 combined_wav.append(silence)
         
         final_wav = np.concatenate(combined_wav)
-        
         output_path = "temp_dialogue.wav"
         sf.write(output_path, final_wav, sr)
         
@@ -233,12 +232,107 @@ def tts_voice_design(text, instruct, language, output_format):
             mp3_path = "temp_dialogue.mp3"
             output_path = convert_to_mp3(output_path, mp3_path)
             
-        return output_path, f"Dialogue generation successful! ({len(final_texts)} turns)"
+        return output_path, f"Hybrid dialogue generation successful! ({len(valid_results)} turns)"
     except Exception as e:
         return None, f"Error: {str(e)}"
     finally:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+def tts_custom_dialogue(script, mappings, language, output_format):
+    global current_model
+    if not script:
+        return None, "Please provide a dialogue script."
+    
+    # mappings: List of (name, model)
+    char_to_voice = {}
+    for name, model in mappings:
+        if name and model and model != "- None -":
+            char_to_voice[name.strip().lower()] = model
+            
+    if not char_to_voice:
+        return None, "Please map at least one character to a voice model."
+
+    # 1. Parse Script
+    segments = [] # (original_index, name, text)
+    lines = script.strip().split('\n')
+    for i, line in enumerate(lines):
+        if ':' in line:
+            name, content = line.split(':', 1)
+            segments.append((i, name.strip().lower(), content.strip()))
+    
+    if not segments:
+        return None, "Dialogue script must use 'Name: Text' format."
+
+    # 2. Group for Batch Generation
+    # We want to generate all turns for the SAME character in one batch to be fast.
+    load_model(BASE_MODEL_ID)
+    
+    final_wavs = [None] * len(segments)
+    sr = 24000
+    
+    # Character -> list of (segment_index, text)
+    char_turns = {}
+    for seg_idx, (orig_line_idx, name, text) in enumerate(segments):
+        if name in char_to_voice:
+            if name not in char_turns:
+                char_turns[name] = []
+            char_turns[name].append((seg_idx, text))
+
+    try:
+        for char_name, turns in char_turns.items():
+            voice_name = char_to_voice[char_name]
+            ref_audio = os.path.join(CUSTOM_VOICES_DIR, f"{voice_name}.wav")
+            ref_text_path = os.path.join(CUSTOM_VOICES_DIR, f"{voice_name}.txt")
+            ref_text = ""
+            if os.path.exists(ref_text_path):
+                with open(ref_text_path, "r", encoding="utf-8") as f:
+                    ref_text = f.read().strip()
+            
+            # Prepare batch for this character
+            batch_texts = [t[1] for t in turns]
+            batch_ref_text = [ref_text] * len(turns)
+            batch_ref_audio = [ref_audio] * len(turns)
+            
+            with torch.no_grad():
+                wavs, current_sr = current_model.generate_voice_clone(
+                    text=batch_texts,
+                    language=language if language != "Auto" else "Auto",
+                    ref_audio=batch_ref_audio,
+                    ref_text=batch_ref_text,
+                    x_vector_only_mode=[not bool(ref_text)] * len(turns)
+                )
+                sr = current_sr
+                for (seg_idx, _), w in zip(turns, wavs):
+                    final_wavs[seg_idx] = w
+
+    except Exception as e:
+        return None, f"Error generating custom dialogue: {str(e)}"
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    # 3. Concatenate
+    valid_wavs = [w for w in final_wavs if w is not None]
+    if not valid_wavs:
+        return None, "No valid dialogue lines generated (check character names)."
+
+    silence = np.zeros(int(0.5 * sr), dtype=np.float32)
+    combined = []
+    for i, w in enumerate(valid_wavs):
+        combined.append(w)
+        if i < len(valid_wavs) - 1:
+            combined.append(silence)
+    
+    final_wav = np.concatenate(combined)
+    output_path = "temp_custom_dialogue.wav"
+    sf.write(output_path, final_wav, sr)
+    
+    if output_format == "mp3":
+        mp3_path = "temp_custom_dialogue.mp3"
+        output_path = convert_to_mp3(output_path, mp3_path)
+            
+    return output_path, f"Dialogue successful! ({len(valid_wavs)} turns from {len(char_turns)} speakers)"
 
 def get_instruct_ids(instruct, model):
     if not instruct:
@@ -497,6 +591,37 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                     def render_d_history(history_list):
                         render_history_grid(history_list)
 
+        # TAB 4: DIALOGUE (CUSTOM VOICES)
+        with gr.Tab("Dialogue (Custom Voices)"):
+            gr.Markdown("### Multi-Character Dialogue using your Own Saved Voice Models")
+            with gr.Row():
+                with gr.Column():
+                    gr.Markdown("#### Character Voice Mappings")
+                    mapping_rows = []
+                    custom_voices = get_custom_voices()
+                    for i in range(5):
+                        with gr.Row():
+                            c_name = gr.Textbox(label=f"Char {i+1} Name", placeholder="e.g. Johnny", scale=1)
+                            c_model = gr.Dropdown(choices=["- None -"] + custom_voices, label="Voice Model", value="- None -", scale=2)
+                            mapping_rows.append((c_name, c_model))
+                    
+                    dc_text = gr.Textbox(
+                        label="Dialogue Script", 
+                        placeholder="CharacterName: Dialogue text...", 
+                        lines=8,
+                        value='johnny:hey there, how are you?\nmary:I\'m good thanks.'
+                    )
+                    dc_lang = gr.Dropdown(choices=["Auto"] + preset_languages, label="Language", value="Auto")
+                    dc_format = gr.Radio(choices=["wav", "mp3"], label="Output Format", value="wav")
+                    dc_gen_btn = gr.Button("Generate Custom Dialogue", variant="primary")
+                with gr.Column():
+                    dc_audio = gr.Audio(label="Generated Audio", type="filepath")
+                    dc_info = gr.Textbox(label="Status Info", interactive=False)
+                    
+                    @gr.render(inputs=history_state)
+                    def render_dc_history(history_list):
+                        render_history_grid(history_list)
+
     with gr.Row():
         exit_btn = gr.Button("Exit / Stop Server", variant="stop")
 
@@ -552,6 +677,31 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
     ).then(
         fn=add_to_history,
         inputs=[d_audio, history_state],
+        outputs=history_state
+    ).then(
+        fn=lambda: "Current Model: " + current_model_id,
+        outputs=status_msg
+    )
+
+    # Character mappings need careful handling. We flatten the inputs for the click function.
+    mapping_inputs = []
+    for pair in mapping_rows:
+        mapping_inputs.extend([pair[0], pair[1]])
+
+    def wrapped_custom_dialogue(script, lang, fmt, *args):
+        # args will be [name1, model1, name2, model2, ...]
+        mappings = []
+        for i in range(0, len(args), 2):
+            mappings.append((args[i], args[i+1]))
+        return tts_custom_dialogue(script, mappings, lang, fmt)
+
+    dc_gen_btn.click(
+        fn=wrapped_custom_dialogue,
+        inputs=[dc_text, dc_lang, dc_format] + mapping_inputs,
+        outputs=[dc_audio, dc_info]
+    ).then(
+        fn=add_to_history,
+        inputs=[dc_audio, history_state],
         outputs=history_state
     ).then(
         fn=lambda: "Current Model: " + current_model_id,
