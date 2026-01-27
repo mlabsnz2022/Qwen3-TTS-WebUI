@@ -230,15 +230,7 @@ def add_to_history(new_audio, history):
     history.append(dest_path)
     return history
 
-@gr.render(inputs=history_state)
-def render_history(history):
-    if not history:
-        return
-    gr.Markdown("### Session History")
-    with gr.Column():
-        for path in reversed(history):
-            # gr.Audio provides both play and download buttons
-            gr.Audio(path, label=os.path.basename(path), interactive=False)
+
 
 # Get supported speakers and languages for Preset UI
 preset_speakers = [s.lower() for s in current_model.get_supported_speakers()]
@@ -264,7 +256,15 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                 with gr.Column():
                     p_audio = gr.Audio(label="Generated Audio", type="filepath")
                     p_info = gr.Textbox(label="Status Info", interactive=False)
-                    render_history(history_state)
+                    
+                    @gr.render(inputs=history_state)
+                    def render_p_history(history):
+                        if not history:
+                            return
+                        gr.Markdown("### Session History")
+                        with gr.Column():
+                            for path in reversed(history):
+                                gr.Audio(path, label=os.path.basename(path), interactive=False)
 
         # TAB 2: VOICE CLONE
         with gr.Tab("Voice Clone (Zero-Shot)"):
@@ -282,7 +282,15 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                 with gr.Column():
                     c_audio = gr.Audio(label="Generated Audio", type="filepath")
                     c_info = gr.Textbox(label="Status Info", interactive=False)
-                    render_history(history_state)
+                    
+                    @gr.render(inputs=history_state)
+                    def render_c_history(history):
+                        if not history:
+                            return
+                        gr.Markdown("### Session History")
+                        with gr.Column():
+                            for path in reversed(history):
+                                gr.Audio(path, label=os.path.basename(path), interactive=False)
 
     with gr.Row():
         exit_btn = gr.Button("Exit / Stop Server", variant="stop")
