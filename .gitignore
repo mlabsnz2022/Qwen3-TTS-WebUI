@@ -10,3 +10,6 @@ outputs/
 # Custom voices
 custom_voices/*
 !custom_voices/.gitkeep
+
+# Session history
+session_outputs/*

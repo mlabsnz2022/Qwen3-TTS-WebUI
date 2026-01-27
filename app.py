@@ -5,6 +5,7 @@ from qwen_tts import Qwen3TTSModel
 import os
 import gc
 import shutil
+import time
 from pydub import AudioSegment
 
 # Global variables to manage models
@@ -16,6 +17,9 @@ current_model_id = None
 
 CUSTOM_VOICES_DIR = "/home/mlabs/Documents/dev/tts/custom_voices"
 os.makedirs(CUSTOM_VOICES_DIR, exist_ok=True)
+
+SESSION_DIR = "/home/mlabs/Documents/dev/tts/session_outputs"
+os.makedirs(SESSION_DIR, exist_ok=True)
 
 def get_custom_voices():
     if not os.path.exists(CUSTOM_VOICES_DIR):
@@ -211,6 +215,21 @@ def update_speaker_dropdown():
     all_speakers = base_speakers + custom_voices
     return gr.Dropdown(choices=all_speakers)
 
+def add_to_history(new_audio, history):
+    if not new_audio:
+        return history
+    
+    # Create a unique copy in session_outputs
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    ext = os.path.splitext(new_audio)[1]
+    filename = f"gen_{timestamp}{ext}"
+    dest_path = os.path.join(SESSION_DIR, filename)
+    shutil.copy(new_audio, dest_path)
+    
+    # Store the path in state
+    history.append(dest_path)
+    return history
+
 # Get supported speakers and languages for Preset UI
 preset_speakers = [s.lower() for s in current_model.get_supported_speakers()]
 preset_languages = current_model.get_supported_languages()
@@ -218,6 +237,7 @@ preset_languages = current_model.get_supported_languages()
 with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
     gr.Markdown("# Qwen3-TTS WebUI")
     status_msg = gr.Markdown("Current Model: " + CUSTOM_VOICE_MODEL_ID)
+    history_state = gr.State([])
     
     with gr.Tabs():
         # TAB 1: PRESET VOICES
@@ -251,6 +271,14 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                 with gr.Column():
                     c_audio = gr.Audio(label="Generated Audio", type="filepath")
                     c_info = gr.Textbox(label="Status Info", interactive=False)
+                    
+                    gr.Markdown("### Session History")
+                    @gr.render(inputs=history_state)
+                    def render_history(history):
+                        with gr.Column():
+                            for path in reversed(history):
+                                # gr.Audio provides both play and download buttons
+                                gr.Audio(path, label=os.path.basename(path), interactive=False)
 
     with gr.Row():
         exit_btn = gr.Button("Exit / Stop Server", variant="stop")
@@ -260,6 +288,10 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
         fn=tts_preset,
         inputs=[p_text, p_lang, p_speaker, p_instruct, p_format],
         outputs=[p_audio, p_info]
+    ).then(
+        fn=add_to_history,
+        inputs=[p_audio, history_state],
+        outputs=history_state
     ).then(
         fn=lambda: "Current Model: " + current_model_id,
         outputs=status_msg
@@ -278,6 +310,10 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
         fn=tts_clone,
         inputs=[c_text, c_lang, c_ref_audio, c_ref_text, c_format],
         outputs=[c_audio, c_info]
+    ).then(
+        fn=add_to_history,
+        inputs=[c_audio, history_state],
+        outputs=history_state
     ).then(
         fn=lambda: "Current Model: " + current_model_id,
         outputs=status_msg
