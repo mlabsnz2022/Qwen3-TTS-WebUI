@@ -6,3 +6,7 @@ temp_*.wav
 test_output.wav
 outputs/
 .env
+
+# Custom voices
+custom_voices/*
+!custom_voices/.gitkeep
