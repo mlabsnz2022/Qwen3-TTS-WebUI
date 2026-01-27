@@ -6,6 +6,8 @@ import os
 import gc
 import shutil
 import time
+import re
+import numpy as np
 from pydub import AudioSegment
 
 # Global variables to manage models
@@ -149,29 +151,89 @@ def tts_preset(text, language, speaker, instruct, output_format):
 def tts_voice_design(text, instruct, language, output_format):
     global current_model
     if not text or not instruct:
-        return None, "Please provide both text and voice design instructions."
+        return None, "Please provide both dialogue script and timbre definitions."
     
     # Ensure VoiceDesign model is loaded
     load_model(VOICE_DESIGN_MODEL_ID)
     
-    lang = language if language else "Auto"
+    # 1. Parse Timbre Definitions
+    # Format: "Name": "Description"
+    timbre_dict = {}
+    pattern_timbre = r'["\']?([\w\s]+)["\']?\s*:\s*["\']?([^"\']+)["\']?'
+    for match in re.finditer(pattern_timbre, instruct):
+        name, desc = match.groups()
+        timbre_dict[name.strip().lower()] = desc.strip()
+    
+    if not timbre_dict:
+        return None, "Could not parse any character definitions. Please use format: 'Name': 'Description'"
+
+    # 2. Parse Dialogue Script
+    # Format: Name: Text
+    segments = []
+    lines = text.strip().split('\n')
+    for line in lines:
+        if ':' in line:
+            name, content = line.split(':', 1)
+            segments.append({
+                "name": name.strip().lower(),
+                "text": content.strip()
+            })
+    
+    if not segments:
+        return None, "Could not parse any dialogue lines. Please use format: 'Name: Text'"
+
+    # 3. Prepare Lists for Model
+    final_texts = []
+    final_instructs = []
+    for seg in segments:
+        name = seg["name"]
+        content = seg["text"]
+        if name in timbre_dict:
+            final_texts.append(content)
+            final_instructs.append(timbre_dict[name])
+        else:
+            print(f"Warning: No timbre definition for character '{name}'. Skipping or use default?")
+            # For now, let's just skip or use the first available timbre
+            if timbre_dict:
+                final_texts.append(content)
+                final_instructs.append(list(timbre_dict.values())[0])
+
+    if not final_texts:
+        return None, "No valid dialogue lines with matching characters found."
+
+    lang = language if language != "Auto" else "Auto"
     
     try:
         with torch.no_grad():
+            # generate_voice_design handles lists
             wavs, sr = current_model.generate_voice_design(
-                text=text.strip(),
+                text=final_texts,
                 language=lang,
-                instruct=instruct.strip()
+                instruct=final_instructs
             )
         
-        output_path = "temp_design.wav"
-        sf.write(output_path, wavs[0], sr)
+        # 4. Concatenate with silence
+        # wavs is a list of np arrays
+        silence_duration = 0.5 # seconds
+        silence_samples = int(silence_duration * sr)
+        silence = np.zeros(silence_samples, dtype=np.float32)
+        
+        combined_wav = []
+        for i, w in enumerate(wavs):
+            combined_wav.append(w)
+            if i < len(wavs) - 1:
+                combined_wav.append(silence)
+        
+        final_wav = np.concatenate(combined_wav)
+        
+        output_path = "temp_dialogue.wav"
+        sf.write(output_path, final_wav, sr)
         
         if output_format == "mp3":
-            mp3_path = "temp_design.mp3"
+            mp3_path = "temp_dialogue.mp3"
             output_path = convert_to_mp3(output_path, mp3_path)
             
-        return output_path, "Dialogue generation successful!"
+        return output_path, f"Dialogue generation successful! ({len(final_texts)} turns)"
     except Exception as e:
         return None, f"Error: {str(e)}"
     finally:
