@@ -11,6 +11,7 @@ from pydub import AudioSegment
 # Global variables to manage models
 CUSTOM_VOICE_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 BASE_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+VOICE_DESIGN_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
 
 current_model = None
 current_model_id = None
@@ -144,6 +145,38 @@ def tts_preset(text, language, speaker, instruct, output_format):
         finally:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+def tts_voice_design(text, instruct, language, output_format):
+    global current_model
+    if not text or not instruct:
+        return None, "Please provide both text and voice design instructions."
+    
+    # Ensure VoiceDesign model is loaded
+    load_model(VOICE_DESIGN_MODEL_ID)
+    
+    lang = language if language else "Auto"
+    
+    try:
+        with torch.no_grad():
+            wavs, sr = current_model.generate_voice_design(
+                text=text.strip(),
+                language=lang,
+                instruct=instruct.strip()
+            )
+        
+        output_path = "temp_design.wav"
+        sf.write(output_path, wavs[0], sr)
+        
+        if output_format == "mp3":
+            mp3_path = "temp_design.mp3"
+            output_path = convert_to_mp3(output_path, mp3_path)
+            
+        return output_path, "Dialogue generation successful!"
+    except Exception as e:
+        return None, f"Error: {str(e)}"
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 def get_instruct_ids(instruct, model):
     if not instruct:
@@ -374,6 +407,34 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                     def render_c_history(history_list):
                         render_history_grid(history_list)
 
+        # TAB 3: DIALOGUE (VOICE DESIGN)
+        with gr.Tab("Dialogue (Timbre Reuse)"):
+            gr.Markdown("### Create Multi-Character Dialogues with Persistent Timbres")
+            with gr.Row():
+                with gr.Column():
+                    d_text = gr.Textbox(
+                        label="Dialogue Script", 
+                        placeholder="CharacterName: Dialogue text...", 
+                        lines=10,
+                        value='Lucas:H-hey! You dropped your... uh... calculus notebook? I mean, I think it\'s yours? Maybe?\nMia:Oh wow, my mortal enemy - Mr. Thompson\'s problem sets. Thanks for rescuing me from that F.\nLucas:No problem! I actually... kinda finished those already? If you want to compare answers or something...\nMia:Is this your sneaky way of saying you want to study together, Lucas? Because I saw you staring during lab partners sign-up.'
+                    )
+                    d_instruct = gr.Textbox(
+                        label="Character Timbre Definitions", 
+                        placeholder='"CharacterName": "Description..."', 
+                        lines=5,
+                        value='"Lucas": "Male, 17 years old, tenor range, gaining confidence - deeper breath support now, though vowels still tighten when nervous"\n"Mia": "Female, 16 years old, mezzo-soprano range, softening - lowering register to intimate speaking voice, consonants softening"'
+                    )
+                    d_lang = gr.Dropdown(choices=["Auto"] + preset_languages, label="Language", value="Auto")
+                    d_format = gr.Radio(choices=["wav", "mp3"], label="Output Format", value="wav")
+                    d_gen_btn = gr.Button("Generate Dialogue", variant="primary")
+                with gr.Column():
+                    d_audio = gr.Audio(label="Generated Audio", type="filepath")
+                    d_info = gr.Textbox(label="Status Info", interactive=False)
+                    
+                    @gr.render(inputs=history_state)
+                    def render_d_history(history_list):
+                        render_history_grid(history_list)
+
     with gr.Row():
         exit_btn = gr.Button("Exit / Stop Server", variant="stop")
 
@@ -420,6 +481,19 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
     ).then(
         fn=update_custom_dropdown,
         outputs=[p_custom_speaker]
+    )
+
+    d_gen_btn.click(
+        fn=tts_voice_design,
+        inputs=[d_text, d_instruct, d_lang, d_format],
+        outputs=[d_audio, d_info]
+    ).then(
+        fn=add_to_history,
+        inputs=[d_audio, history_state],
+        outputs=history_state
+    ).then(
+        fn=lambda: "Current Model: " + current_model_id,
+        outputs=status_msg
     )
 
     exit_btn.click(fn=shutdown)
