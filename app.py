@@ -230,6 +230,34 @@ def add_to_history(new_audio, history):
     history.append(dest_path)
     return history
 
+# Custom CSS for the scrollable grid
+custom_css = """
+.history-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+}
+.history-card {
+    padding: 8px;
+    background: #2a2a2a;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.history-card p {
+    margin: 0;
+    font-size: 0.8em;
+    color: #ccc;
+    word-break: break-all;
+}
+"""
+
 
 
 # Get supported speakers and languages for Preset UI
@@ -241,6 +269,27 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
     status_msg = gr.Markdown("Current Model: " + CUSTOM_VOICE_MODEL_ID)
     history_state = gr.State([])
     
+    def get_actual_speaker(preset, custom):
+        if custom and custom != "- None -":
+            return custom
+        return preset
+
+    def update_custom_dropdown():
+        custom_voices = ["- None -"] + get_custom_voices()
+        return gr.Dropdown(choices=custom_voices, value="- None -")
+
+    def render_history_grid(history_list):
+        if not history_list:
+            return
+        gr.Markdown("### Session History")
+        with gr.Group(elem_classes="history-grid"):
+            for path in reversed(history_list):
+                with gr.Group(elem_classes="history-card"):
+                    gr.Markdown(f"**{os.path.basename(path)}**")
+                    # Using a minimal audio player. Gradio's gr.Audio is somewhat chunky, 
+                    # but setting labels and interactive=False makes it cleaner.
+                    gr.Audio(path, show_label=False, container=False)
+
     with gr.Tabs():
         # TAB 1: PRESET VOICES
         with gr.Tab("Preset Voices"):
@@ -248,23 +297,20 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                 with gr.Column():
                     p_text = gr.Textbox(label="Text to Speak", placeholder="Enter text here...", lines=3)
                     p_lang = gr.Dropdown(choices=["Auto"] + preset_languages, label="Language", value="Auto")
-                    p_speaker = gr.Dropdown(choices=preset_speakers + get_custom_voices(), label="Speaker", value="vivian")
+                    with gr.Row():
+                        p_speaker = gr.Dropdown(choices=preset_speakers, label="Preset Voices", value="vivian")
+                        p_custom_speaker = gr.Dropdown(choices=["- None -"] + get_custom_voices(), label="Custom Voices", value="- None -")
                     p_instruct = gr.Textbox(label="Instruction (Optional)", placeholder="e.g., Very happy, whispered...")
                     p_format = gr.Radio(choices=["wav", "mp3"], label="Output Format", value="wav")
                     p_gen_btn = gr.Button("Generate Audio", variant="primary")
-                    p_delete_btn = gr.Button("Delete Voice", variant="secondary")
+                    p_delete_btn = gr.Button("Delete Custom Voice", variant="secondary")
                 with gr.Column():
                     p_audio = gr.Audio(label="Generated Audio", type="filepath")
                     p_info = gr.Textbox(label="Status Info", interactive=False)
                     
                     @gr.render(inputs=history_state)
-                    def render_p_history(history):
-                        if not history:
-                            return
-                        gr.Markdown("### Session History")
-                        with gr.Column():
-                            for path in reversed(history):
-                                gr.Audio(path, label=os.path.basename(path), interactive=False)
+                    def render_p_history(history_list):
+                        render_history_grid(history_list)
 
         # TAB 2: VOICE CLONE
         with gr.Tab("Voice Clone (Zero-Shot)"):
@@ -284,21 +330,16 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                     c_info = gr.Textbox(label="Status Info", interactive=False)
                     
                     @gr.render(inputs=history_state)
-                    def render_c_history(history):
-                        if not history:
-                            return
-                        gr.Markdown("### Session History")
-                        with gr.Column():
-                            for path in reversed(history):
-                                gr.Audio(path, label=os.path.basename(path), interactive=False)
+                    def render_c_history(history_list):
+                        render_history_grid(history_list)
 
     with gr.Row():
         exit_btn = gr.Button("Exit / Stop Server", variant="stop")
 
     # Callbacks
     p_gen_btn.click(
-        fn=tts_preset,
-        inputs=[p_text, p_lang, p_speaker, p_instruct, p_format],
+        fn=lambda t, l, ps, cs, i, f: tts_preset(t, l, get_actual_speaker(ps, cs), i, f),
+        inputs=[p_text, p_lang, p_speaker, p_custom_speaker, p_instruct, p_format],
         outputs=[p_audio, p_info]
     ).then(
         fn=add_to_history,
@@ -311,11 +352,11 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
 
     p_delete_btn.click(
         fn=delete_voice,
-        inputs=[p_speaker],
+        inputs=[p_custom_speaker],
         outputs=[p_info]
     ).then(
-        fn=update_speaker_dropdown,
-        outputs=[p_speaker]
+        fn=update_custom_dropdown,
+        outputs=[p_custom_speaker]
     )
 
     c_gen_btn.click(
@@ -336,12 +377,12 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
         inputs=[c_save_name, c_ref_audio, c_ref_text],
         outputs=[c_info]
     ).then(
-        fn=update_speaker_dropdown,
-        outputs=[p_speaker]
+        fn=update_custom_dropdown,
+        outputs=[p_custom_speaker]
     )
 
     exit_btn.click(fn=shutdown)
 
 if __name__ == "__main__":
     # share=True creates a public HTTPS link, which often fixes microphone permission issues
-    demo.launch(share=True, inbrowser=True)
+    demo.launch(share=True, inbrowser=True, css=custom_css)
