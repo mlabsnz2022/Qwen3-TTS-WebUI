@@ -5,6 +5,7 @@ from qwen_tts import Qwen3TTSModel
 import os
 import gc
 import shutil
+from pydub import AudioSegment
 
 # Global variables to manage models
 CUSTOM_VOICE_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
@@ -50,9 +51,16 @@ def load_model(model_id):
 # Initial load (CustomVoice)
 load_model(CUSTOM_VOICE_MODEL_ID)
 
+def convert_to_mp3(wav_path, mp3_path):
+    try:
+        audio = AudioSegment.from_wav(wav_path)
+        audio.export(mp3_path, format="mp3")
+        return mp3_path
+    except Exception as e:
+        print(f"MP3 Conversion Error: {e}")
+        return wav_path
 
-
-def tts_preset(text, language, speaker, instruct):
+def tts_preset(text, language, speaker, instruct, output_format):
     global current_model
     if not text:
         return None, "Please enter some text."
@@ -86,6 +94,11 @@ def tts_preset(text, language, speaker, instruct):
                 )
             output_path = "temp_preset.wav"
             sf.write(output_path, wavs[0], sr)
+            
+            if output_format == "mp3":
+                mp3_path = "temp_preset.mp3"
+                output_path = convert_to_mp3(output_path, mp3_path)
+                
             return output_path, f"Generation with custom voice '{speaker}' successful! (Mode: {'X-Vector' if x_vector_only else 'ICL'})"
         except Exception as e:
             return None, f"Error with custom voice: {str(e)}"
@@ -106,6 +119,11 @@ def tts_preset(text, language, speaker, instruct):
             
             output_path = "temp_preset.wav"
             sf.write(output_path, wavs[0], sr)
+            
+            if output_format == "mp3":
+                mp3_path = "temp_preset.mp3"
+                output_path = convert_to_mp3(output_path, mp3_path)
+                
             return output_path, "Generation successful!"
         except Exception as e:
             return None, f"Error: {str(e)}"
@@ -113,7 +131,7 @@ def tts_preset(text, language, speaker, instruct):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-def tts_clone(text, language, ref_audio, ref_text):
+def tts_clone(text, language, ref_audio, ref_text, output_format):
     global current_model
     if not text or ref_audio is None:
         return None, "Please provide text and reference audio."
@@ -135,6 +153,11 @@ def tts_clone(text, language, ref_audio, ref_text):
         
         output_path = "temp_clone.wav"
         sf.write(output_path, wavs[0], sr)
+        
+        if output_format == "mp3":
+            mp3_path = "temp_clone.mp3"
+            output_path = convert_to_mp3(output_path, mp3_path)
+            
         return output_path, "Cloning successful!"
     except Exception as e:
         return None, f"Error: {str(e)}"
@@ -205,6 +228,7 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                     p_lang = gr.Dropdown(choices=["Auto"] + preset_languages, label="Language", value="Auto")
                     p_speaker = gr.Dropdown(choices=preset_speakers + get_custom_voices(), label="Speaker", value="vivian")
                     p_instruct = gr.Textbox(label="Instruction (Optional)", placeholder="e.g., Very happy, whispered...")
+                    p_format = gr.Radio(choices=["wav", "mp3"], label="Output Format", value="wav")
                     p_gen_btn = gr.Button("Generate Audio", variant="primary")
                     p_delete_btn = gr.Button("Delete Voice", variant="secondary")
                 with gr.Column():
@@ -222,6 +246,7 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                     c_ref_text = gr.Textbox(label="Reference Transcript (Optional but recommended)", placeholder="What is being said in the reference audio?")
                     c_save_name = gr.Textbox(label="Voice Name (to save)", placeholder="e.g., MyAwesomeVoice")
                     c_save_btn = gr.Button("Save Voice Model", variant="secondary")
+                    c_format = gr.Radio(choices=["wav", "mp3"], label="Output Format", value="wav")
                     c_gen_btn = gr.Button("Clone & Generate", variant="primary")
                 with gr.Column():
                     c_audio = gr.Audio(label="Generated Audio", type="filepath")
@@ -233,7 +258,7 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
     # Callbacks
     p_gen_btn.click(
         fn=tts_preset,
-        inputs=[p_text, p_lang, p_speaker, p_instruct],
+        inputs=[p_text, p_lang, p_speaker, p_instruct, p_format],
         outputs=[p_audio, p_info]
     ).then(
         fn=lambda: "Current Model: " + current_model_id,
@@ -251,7 +276,7 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
 
     c_gen_btn.click(
         fn=tts_clone,
-        inputs=[c_text, c_lang, c_ref_audio, c_ref_text],
+        inputs=[c_text, c_lang, c_ref_audio, c_ref_text, c_format],
         outputs=[c_audio, c_info]
     ).then(
         fn=lambda: "Current Model: " + current_model_id,
