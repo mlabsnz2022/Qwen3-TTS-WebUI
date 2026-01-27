@@ -78,4 +78,4 @@ Map specific character names in your script to your carefully curated library of
 MIT
 
 ---
-*Developed by MLABS using the DeepMind Advanced Agentic Coding Application.*
+*Developed by MLABS using Antigravity.*
