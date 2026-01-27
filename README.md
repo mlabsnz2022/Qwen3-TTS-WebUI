@@ -1,74 +1,80 @@
 # Qwen3-TTS WebUI
 
-A powerful and user-friendly WebUI for Qwen3-TTS, supporting high-quality speech generation through preset voices and zero-shot voice cloning.
+A powerful, user-friendly, and feature-rich WebUI for Qwen3-TTS. This interface supports state-of-the-art speech generation, zero-shot voice cloning, and advanced multi-character dialogue creation with persistent identities.
 
-## Features
+![Main Interface](assets/preset_voices.png)
 
-- **Preset Voices**: Access a wide range of high-quality predefined speakers.
-- **Voice Clone (Zero-Shot)**: Upload or record a short audio clip (3-10s) to clone any voice instantly.
-- **Voice Management**:
-  - Save cloned voices for future use.
-  - Saved voices appear automatically in the Preset Voices dropdown.
-  - Easily delete custom voices from the UI.
-- **Flexible Formats**: Export your generated audio as either `.wav` or `.mp3`.
-- **Instruction-aware**: Provide instructions (e.g., "Whispered", "Very happy") to influence the tone and delivery of preset voices.
-- **Adaptive Generation**: Intelligent switching between ICL (In-Context Learning) and X-Vector modes for best result quality.
+## Core Capabilities
+
+- **Preset Voices**: Access high-quality predefined speakers with instant generation.
+- **Voice Clone (Zero-Shot)**: Clone any voice from a 3-10s audio clip with high fidelity.
+- **Style Control**: 
+  - **Quick Buttons**: Instantly apply styles like *Whispered*, *Shouting*, *Excited*, or *Serious* using one-click tags.
+  - **Natural Language Instructions**: Command the model with prompts like "Speak in a very calm Cantonese accent" or "Sound like a tech enthusiast."
+- **Multi-Character Dialogue**:
+  - **Timbre Reuse (Voice Design)**: Define new characters using natural language and generate multi-turn scripts where voices stay consistent.
+  - **Dialogue (Custom Voices)**: Explicitly map your own saved voice models to character names for reliable, production-ready conversations.
+- **Session Management**: 
+  - **Compact History**: View and replay all previous generations in a scrollable grid gallery.
+  - **Voice Library**: Save, load, and manage your custom cloned voices directly from the UI.
+- **Flexible Export**: Seamlessly export generations as `.wav` or `.mp3`.
+
+---
 
 ## Installation
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/mlabsnz2022/Qwen3-TTS-WebUI.git
-   cd Qwen3-TTS-WebUI
-   ```
+### 1. Clone the repository
+```bash
+git clone https://github.com/mlabsnz2022/Qwen3-TTS-WebUI.git
+cd Qwen3-TTS-WebUI
+```
 
-2. **Set up the environment**:
-   It is recommended to use a virtual environment:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-   *(Note: Ensure you have `ffmpeg` installed on your system for MP3 conversion support.)*
+### 2. Set up the environment
+We recommend using a virtual environment:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+*(Note: Ensure you have `ffmpeg` installed on your system for MP3 conversion support.)*
+
+---
 
 ## Usage
 
-### Running the WebUI
-The easiest way to start the application is using the provided script:
+### Starting the Application
+Simply run the provided startup script:
 ```bash
 ./run_tts.sh
 ```
-This script activates the virtual environment, sets memory management optimizations, and launches the Gradio interface.
+This script handles virtual environment activation, memory optimizations, and launches the Gradio server.
 
-### Preset Voices
+### Tab-by-Tab Guide
 
-![Preset Voices Interface](assets/preset_voices.png)
+#### 1. Preset Voices
+![Preset Voices](assets/preset_voices.png)
+Select from built-in or your own saved voices. Use style buttons to refine the delivery and get instant results.
 
-1. Enter the text you want to speak.
-2. Select a speaker from the dropdown (includes both built-in and saved custom voices).
-3. (Optional) Provide instructions for style or emotion.
-4. Choose your output format (`wav` or `mp3`).
-5. Click **Generate Audio**.
+#### 2. Voice Cloning
+![Voice Cloning](assets/voice_clone.png)
+Upload a reference clip, provide a transcript for maximum quality (ICL mode), and optionally save the model to your permanent library.
 
-### Voice Cloning
+#### 3. Dialogue (Timbre Reuse)
+![Timbre Reuse](assets/dialogue_design.png)
+Perfect for storytelling. Define characters by description (e.g., "Lucas: 17yo male, tenor") and write a script. The model ensures "Lucas" sounds the same every time he speaks.
 
-![Voice Cloning Interface](assets/voice_clone.png)
+#### 4. Dialogue (Custom Voices)
+![Custom Dialogue](assets/dialogue_custom.png)
+Map specific character names in your script to your carefully curated library of saved custom voices for total control over multi-speaker audio.
 
-1. Upload a short reference audio file or use the microphone.
-2. Enter the transcript of the reference audio (recommended for better quality).
-3. Enter the text you wish to generate.
-4. (Optional) Provide a name and click **Save Voice Model** to keep the voice for later.
-5. Click **Clone & Generate**.
+---
 
-## Project Structure
-
-- `app.py`: The main Gradio application logic.
-- `run_tts.sh`: Startup script.
-- `custom_voices/`: Directory where your saved voice models (audio and transcripts) are stored.
-- `generate_tts.py`: CLI-based generation utility.
+## Technical Details
+- **Base Models**: `Qwen3-TTS-12Hz-1.7B` (Base, CustomVoice, and VoiceDesign variants).
+- **Generation Modes**: Automatically switches between **ICL (In-Context Learning)** for highest quality with transcripts and **X-Vector** for fast, transcript-free cloning.
+- **Audio Processing**: High-fidelity 24kHz output with on-the-fly MP3 conversion.
 
 ## License
-
 MIT
 
 ---
