@@ -41,6 +41,9 @@ The easiest way to start the application is using the provided script:
 This script activates the virtual environment, sets memory management optimizations, and launches the Gradio interface.
 
 ### Preset Voices
+
+![Preset Voices Interface](assets/preset_voices.png)
+
 1. Enter the text you want to speak.
 2. Select a speaker from the dropdown (includes both built-in and saved custom voices).
 3. (Optional) Provide instructions for style or emotion.
@@ -48,6 +51,9 @@ This script activates the virtual environment, sets memory management optimizati
 5. Click **Generate Audio**.
 
 ### Voice Cloning
+
+![Voice Cloning Interface](assets/voice_clone.png)
+
 1. Upload a short reference audio file or use the microphone.
 2. Enter the transcript of the reference audio (recommended for better quality).
 3. Enter the text you wish to generate.
