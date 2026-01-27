@@ -69,7 +69,7 @@ This script activates the virtual environment, sets memory management optimizati
 
 ## License
 
-[Specify License Here, e.g., MIT]
+MIT
 
 ---
-*Developed by the DeepMind Advanced Agentic Coding team and contributors.*
+*Developed by MLABS using the DeepMind Advanced Agentic Coding Application.*
