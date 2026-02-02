@@ -15,6 +15,16 @@ CUSTOM_VOICE_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 BASE_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 VOICE_DESIGN_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
 
+def set_seed(seed):
+    if seed == -1:
+        seed = int(time.time() * 1000) % 1000000
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    return seed
+
 current_model = None
 current_model_id = None
 
@@ -77,10 +87,14 @@ def convert_to_mp3(wav_path, mp3_path):
         print(f"MP3 Conversion Error: {e}")
         return wav_path
 
-def tts_preset(text, language, speaker, instruct, output_format):
+def tts_preset(text, language, speaker, instruct, output_format, seed, randomize_seed):
     global current_model
     if not text:
-        return None, "Please enter some text."
+        return None, "Please enter some text.", seed
+    
+    if randomize_seed:
+        seed = -1
+    actual_seed = set_seed(seed)
     
     custom_voices = get_custom_voices()
     
@@ -116,9 +130,9 @@ def tts_preset(text, language, speaker, instruct, output_format):
                 mp3_path = "temp_preset.mp3"
                 output_path = convert_to_mp3(output_path, mp3_path)
                 
-            return output_path, f"Generation with custom voice '{speaker}' successful! (Mode: {'X-Vector' if x_vector_only else 'ICL'})"
+            return output_path, f"Generation with custom voice '{speaker}' successful! (Mode: {'X-Vector' if x_vector_only else 'ICL'})", actual_seed
         except Exception as e:
-            return None, f"Error with custom voice: {str(e)}"
+            return None, f"Error with custom voice: {str(e)}", actual_seed
     else:
         # Standard preset speaker - use CustomVoice model
         load_model(CUSTOM_VOICE_MODEL_ID)
@@ -141,17 +155,21 @@ def tts_preset(text, language, speaker, instruct, output_format):
                 mp3_path = "temp_preset.mp3"
                 output_path = convert_to_mp3(output_path, mp3_path)
                 
-            return output_path, "Generation successful!"
+            return output_path, "Generation successful!", actual_seed
         except Exception as e:
-            return None, f"Error: {str(e)}"
+            return None, f"Error: {str(e)}", actual_seed
         finally:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-def tts_voice_design(text, instruct, language, output_format):
+def tts_voice_design(text, instruct, language, output_format, seed, randomize_seed):
     global current_model
     if not text or not instruct:
-        return None, "Please provide both dialogue script and timbre definitions."
+        return None, "Please provide both dialogue script and timbre definitions.", seed
+    
+    if randomize_seed:
+        seed = -1
+    actual_seed = set_seed(seed)
     
     # Ensure VoiceDesign model is loaded
     load_model(VOICE_DESIGN_MODEL_ID)
@@ -165,7 +183,7 @@ def tts_voice_design(text, instruct, language, output_format):
         timbre_dict[name.strip().lower()] = desc.strip()
     
     if not timbre_dict:
-        return None, "Could not parse any character definitions. Please use format: 'Name': 'Description'"
+        return None, "Could not parse any character definitions. Please use format: 'Name': 'Description'", actual_seed
 
     # 2. Parse Dialogue Script
     # Format: Name: Text
@@ -180,7 +198,7 @@ def tts_voice_design(text, instruct, language, output_format):
             })
     
     if not segments:
-        return None, "Could not parse any dialogue lines. Please use format: 'Name: Text'"
+        return None, "Could not parse any dialogue lines. Please use format: 'Name: Text'", actual_seed
 
     # 3. Prepare Lists for Model
     final_texts = []
@@ -199,7 +217,7 @@ def tts_voice_design(text, instruct, language, output_format):
                 final_instructs.append(list(timbre_dict.values())[0])
 
     if not final_texts:
-        return None, "No valid dialogue lines with matching characters found."
+        return None, "No valid dialogue lines with matching characters found.", actual_seed
 
     lang = language if language != "Auto" else "Auto"
     
@@ -232,17 +250,21 @@ def tts_voice_design(text, instruct, language, output_format):
             mp3_path = "temp_dialogue.mp3"
             output_path = convert_to_mp3(output_path, mp3_path)
             
-        return output_path, f"Hybrid dialogue generation successful! ({len(valid_results)} turns)"
+        return output_path, f"Hybrid dialogue generation successful! ({len(valid_results)} turns)", actual_seed
     except Exception as e:
-        return None, f"Error: {str(e)}"
+        return None, f"Error: {str(e)}", actual_seed
     finally:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-def tts_custom_dialogue(script, mappings, language, output_format):
+def tts_custom_dialogue(script, mappings, language, output_format, seed, randomize_seed):
     global current_model
     if not script:
-        return None, "Please provide a dialogue script."
+        return None, "Please provide a dialogue script.", seed
+    
+    if randomize_seed:
+        seed = -1
+    actual_seed = set_seed(seed)
     
     # mappings: List of (name, model)
     char_to_voice = {}
@@ -251,7 +273,7 @@ def tts_custom_dialogue(script, mappings, language, output_format):
             char_to_voice[name.strip().lower()] = model
             
     if not char_to_voice:
-        return None, "Please map at least one character to a voice model."
+        return None, "Please map at least one character to a voice model.", actual_seed
 
     # 1. Parse Script
     segments = [] # (original_index, name, text)
@@ -262,7 +284,7 @@ def tts_custom_dialogue(script, mappings, language, output_format):
             segments.append((i, name.strip().lower(), content.strip()))
     
     if not segments:
-        return None, "Dialogue script must use 'Name: Text' format."
+        return None, "Dialogue script must use 'Name: Text' format.", actual_seed
 
     # 2. Group for Batch Generation
     # We want to generate all turns for the SAME character in one batch to be fast.
@@ -307,7 +329,7 @@ def tts_custom_dialogue(script, mappings, language, output_format):
                     final_wavs[seg_idx] = w
 
     except Exception as e:
-        return None, f"Error generating custom dialogue: {str(e)}"
+        return None, f"Error generating custom dialogue: {str(e)}", actual_seed
     finally:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -315,7 +337,7 @@ def tts_custom_dialogue(script, mappings, language, output_format):
     # 3. Concatenate
     valid_wavs = [w for w in final_wavs if w is not None]
     if not valid_wavs:
-        return None, "No valid dialogue lines generated (check character names)."
+        return None, "No valid dialogue lines generated (check character names).", actual_seed
 
     silence = np.zeros(int(0.5 * sr), dtype=np.float32)
     combined = []
@@ -332,7 +354,7 @@ def tts_custom_dialogue(script, mappings, language, output_format):
         mp3_path = "temp_custom_dialogue.mp3"
         output_path = convert_to_mp3(output_path, mp3_path)
             
-    return output_path, f"Dialogue successful! ({len(valid_wavs)} turns from {len(char_turns)} speakers)"
+    return output_path, f"Dialogue successful! ({len(valid_wavs)} turns from {len(char_turns)} speakers)", actual_seed
 
 def get_instruct_ids(instruct, model):
     if not instruct:
@@ -343,10 +365,14 @@ def get_instruct_ids(instruct, model):
     target_device = getattr(model, "device", "cuda:0")
     return [inputs["input_ids"].to(target_device)]
 
-def tts_clone(text, language, ref_audio, ref_text, output_format, instruct):
+def tts_clone(text, language, ref_audio, ref_text, output_format, instruct, seed, randomize_seed):
     global current_model
     if not text or ref_audio is None:
-        return None, "Please provide text and reference audio."
+        return None, "Please provide text and reference audio.", seed
+    
+    if randomize_seed:
+        seed = -1
+    actual_seed = set_seed(seed)
     
     # Ensure Base model is loaded for cloning
     load_model(BASE_MODEL_ID)
@@ -374,9 +400,9 @@ def tts_clone(text, language, ref_audio, ref_text, output_format, instruct):
             mp3_path = "temp_clone.mp3"
             output_path = convert_to_mp3(output_path, mp3_path)
             
-        return output_path, "Cloning successful!"
+        return output_path, "Cloning successful!", actual_seed
     except Exception as e:
-        return None, f"Error: {str(e)}"
+        return None, f"Error: {str(e)}", actual_seed
     finally:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -525,6 +551,9 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                         p_speaker = gr.Dropdown(choices=preset_speakers, label="Preset Voices", value="vivian")
                         p_custom_speaker = gr.Dropdown(choices=["- None -"] + get_custom_voices(), label="Custom Voices", value="- None -")
                     p_instruct = gr.Textbox(label="Instruction (Optional)", placeholder="e.g., Very happy, whispered...")
+                    with gr.Row():
+                        p_seed = gr.Number(label="Seed", value=42, precision=0, step=1)
+                        p_randomize_seed = gr.Checkbox(label="Randomize Seed", value=True)
                     p_format = gr.Radio(choices=["wav", "mp3"], label="Output Format", value="wav")
                     p_gen_btn = gr.Button("Generate Audio", variant="primary")
                     p_delete_btn = gr.Button("Delete Custom Voice", variant="secondary")
@@ -553,6 +582,9 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                     c_save_name = gr.Textbox(label="Voice Name (to save)", placeholder="e.g., MyAwesomeVoice")
                     c_save_btn = gr.Button("Save Voice Model", variant="secondary")
                     c_instruct = gr.Textbox(label="Instruction (Optional)", placeholder="e.g., Speak with a Cantonese accent, or aggressive style...")
+                    with gr.Row():
+                        c_seed = gr.Number(label="Seed", value=42, precision=0, step=1)
+                        c_randomize_seed = gr.Checkbox(label="Randomize Seed", value=True)
                     c_format = gr.Radio(choices=["wav", "mp3"], label="Output Format", value="wav")
                     c_gen_btn = gr.Button("Clone & Generate", variant="primary")
                 with gr.Column():
@@ -581,6 +613,9 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                         value='"Lucas": "Male, 17 years old, tenor range, gaining confidence - deeper breath support now, though vowels still tighten when nervous"\n"Mia": "Female, 16 years old, mezzo-soprano range, softening - lowering register to intimate speaking voice, consonants softening"'
                     )
                     d_lang = gr.Dropdown(choices=["Auto"] + preset_languages, label="Language", value="Auto")
+                    with gr.Row():
+                        d_seed = gr.Number(label="Seed", value=42, precision=0, step=1)
+                        d_randomize_seed = gr.Checkbox(label="Randomize Seed", value=True)
                     d_format = gr.Radio(choices=["wav", "mp3"], label="Output Format", value="wav")
                     d_gen_btn = gr.Button("Generate Dialogue", variant="primary")
                 with gr.Column():
@@ -612,6 +647,9 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
                         value='johnny:hey there, how are you?\nmary:I\'m good thanks.'
                     )
                     dc_lang = gr.Dropdown(choices=["Auto"] + preset_languages, label="Language", value="Auto")
+                    with gr.Row():
+                        dc_seed = gr.Number(label="Seed", value=42, precision=0, step=1)
+                        dc_randomize_seed = gr.Checkbox(label="Randomize Seed", value=True)
                     dc_format = gr.Radio(choices=["wav", "mp3"], label="Output Format", value="wav")
                     dc_gen_btn = gr.Button("Generate Custom Dialogue", variant="primary")
                 with gr.Column():
@@ -627,9 +665,9 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
 
     # Callbacks
     p_gen_btn.click(
-        fn=lambda t, l, ps, cs, i, f: tts_preset(t, l, get_actual_speaker(ps, cs), i, f),
-        inputs=[p_text, p_lang, p_speaker, p_custom_speaker, p_instruct, p_format],
-        outputs=[p_audio, p_info]
+        fn=lambda t, l, ps, cs, i, f, s, r: tts_preset(t, l, get_actual_speaker(ps, cs), i, f, s, r),
+        inputs=[p_text, p_lang, p_speaker, p_custom_speaker, p_instruct, p_format, p_seed, p_randomize_seed],
+        outputs=[p_audio, p_info, p_seed]
     ).then(
         fn=add_to_history,
         inputs=[p_audio, history_state],
@@ -650,8 +688,8 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
 
     c_gen_btn.click(
         fn=tts_clone,
-        inputs=[c_text, c_lang, c_ref_audio, c_ref_text, c_format, c_instruct],
-        outputs=[c_audio, c_info]
+        inputs=[c_text, c_lang, c_ref_audio, c_ref_text, c_format, c_instruct, c_seed, c_randomize_seed],
+        outputs=[c_audio, c_info, c_seed]
     ).then(
         fn=add_to_history,
         inputs=[c_audio, history_state],
@@ -672,8 +710,8 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
 
     d_gen_btn.click(
         fn=tts_voice_design,
-        inputs=[d_text, d_instruct, d_lang, d_format],
-        outputs=[d_audio, d_info]
+        inputs=[d_text, d_instruct, d_lang, d_format, d_seed, d_randomize_seed],
+        outputs=[d_audio, d_info, d_seed]
     ).then(
         fn=add_to_history,
         inputs=[d_audio, history_state],
@@ -688,17 +726,17 @@ with gr.Blocks(title="Qwen3-TTS WebUI (Multi-Mode)") as demo:
     for pair in mapping_rows:
         mapping_inputs.extend([pair[0], pair[1]])
 
-    def wrapped_custom_dialogue(script, lang, fmt, *args):
+    def wrapped_custom_dialogue(script, lang, fmt, seed, randomize_seed, *args):
         # args will be [name1, model1, name2, model2, ...]
         mappings = []
         for i in range(0, len(args), 2):
             mappings.append((args[i], args[i+1]))
-        return tts_custom_dialogue(script, mappings, lang, fmt)
+        return tts_custom_dialogue(script, mappings, lang, fmt, seed, randomize_seed)
 
     dc_gen_btn.click(
         fn=wrapped_custom_dialogue,
-        inputs=[dc_text, dc_lang, dc_format] + mapping_inputs,
-        outputs=[dc_audio, dc_info]
+        inputs=[dc_text, dc_lang, dc_format, dc_seed, dc_randomize_seed] + mapping_inputs,
+        outputs=[dc_audio, dc_info, dc_seed]
     ).then(
         fn=add_to_history,
         inputs=[dc_audio, history_state],
